@@ -1,29 +1,29 @@
-# 🎥 YouTube Telegram Bot
+# 🎥 Telegram YouTube downloader
 
 A powerful Telegram bot that downloads YouTube videos and audio with multiple quality options, built with Python, yt-dlp, and Pyrogram.
 
 **⚠️ Important:** This bot requires incognito browser cookies to prevent session conflicts with regular YouTube browsing and maintain reliability.
 
-**🔧 Pyrogram-Based:** This bot uses Telegram's User API (via Pyrogram) instead of the Bot API to bypass the strict 50MB file size limit, allowing downloads up to 2GB.
+**🔧 Pyrogram-based:** This bot uses Telegram's User API (via Pyrogram) instead of the Bot API to bypass the strict 50MB file size limit, allowing downloads up to 2GB.
 
 ## ✨ Features
 
-### 🎬 Video Downloads
+### 🎬 Video downloads
 - **Multiple Quality Options**: Choose from available video resolutions (144p to 4K+)
 - **Format Support**: Automatic MP4 conversion with audio merging
 - **Progress Tracking**: Real-time download and upload progress bars
 
-### 🎵 Audio Downloads
+### 🎵 Audio downloads
 - **MP3 Extraction**: High-quality MP3 audio extraction
 - **Metadata Integration**: Automatic ID3 tags with title, artist, and album art
 - **Thumbnail Support**: Downloads and embeds video thumbnails as album art
 
-### 🛡️ Security & Control
+### 🛡️ Security & control
 - **Optional User Whitelist**: Toggleable user authorization (disabled by default)
 - **Large File Support**: Up to 2GB file uploads (vs 50MB limit for regular bots)
 - **Error Handling**: Comprehensive error handling with user-friendly messages
 
-### 🔧 Technical Features
+### 🔧 Technical features
 - **Async Processing**: Non-blocking downloads with threading
 - **FFmpeg Integration**: Automatic FFmpeg detection for video processing
 - **Session Isolation**: Uses dedicated incognito cookies to prevent behavioral conflicts
@@ -31,11 +31,11 @@ A powerful Telegram bot that downloads YouTube videos and audio with multiple qu
 
 ## 📋 Requirements
 
-### System Dependencies
+### System dependencies
 - **Python 3.7+**
 - **FFmpeg** (automatically detected)
 
-### Python Dependencies
+### Python dependencies
 ```
 pyrogram          # User API client for large file uploads (up to 2GB)
 yt-dlp           # YouTube video downloader
@@ -44,20 +44,20 @@ requests         # HTTP requests for thumbnails
 python-dotenv    # Environment variable management
 ```
 
+## 📥 Getting the Repository
+
+**Download ZIP or Git clone the repo:**
+- **ZIP Download**: [https://github.com/LeeseTheFox/YouTubeBot](https://github.com/LeeseTheFox/YouTubeBot) → Code → Download ZIP
+- **Git Clone**: `git clone https://github.com/LeeseTheFox/YouTubeBot.git`
+
 ## 🚀 Installation
 
-### 1. Clone the Repository
-```bash
-git clone <repository-url>
-cd YouTubeBot
-```
-
-### 2. Install Dependencies
+### 1. Install dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Install FFmpeg
+### 2. Install FFmpeg
 **Ubuntu/Debian:**
 ```bash
 sudo apt update
@@ -72,24 +72,24 @@ brew install ffmpeg
 **Windows:**
 Download from [ffmpeg.org](https://ffmpeg.org/download.html) and add to PATH.
 
-### 4. Set Up Telegram Bot
+### 3. Set up the Telegram bot
 
-**Why both Bot Token AND API Credentials?**
+**Why both bot token and API credentials?**
 This bot uses Pyrogram (Telegram User API) instead of the standard Bot API to bypass the 50MB file size limit. Regular bots can only send files up to 50MB, but User API allows up to 2GB uploads.
 
-1. **Create a Bot:**
+1. **Create a bot:**
    - Message [@BotFather](https://t.me/BotFather) on Telegram
    - Use `/newbot` command
    - Follow the prompts to get your bot token
 
-2. **Get User API Credentials (Required for Large Files):**
+2. **Get user API credentials (required for large files):**
    - Visit [my.telegram.org](https://my.telegram.org)
    - Log in with your Telegram account
    - Go to "API Development Tools"
    - Create a new application to get `api_id` and `api_hash`
    - **These credentials allow the bot to upload files up to 2GB**
 
-### 5. Configure Environment
+### 4. Configure environment
 
 Create a `.env` file in the project root:
 
@@ -107,7 +107,7 @@ WHITELIST=123456789,987654321
 COOKIES_PATH=cookies.txt
 ```
 
-### 6. User Access Control (Optional)
+### 5. User Access Control (Optional)
 
 **By default, the bot is open to all users.** To restrict access:
 
@@ -115,13 +115,13 @@ COOKIES_PATH=cookies.txt
 2. **Find user IDs** by messaging [@userinfobot](https://t.me/userinfobot)
 3. **Add authorized user IDs** to the `WHITELIST` in `.env` (comma-separated)
 
-### 7. Cookie Setup (Critical for Reliability)
+### 6. Cookie Setup (Critical for reliability)
 
 **⚠️ IMPORTANT: Cookies must be exported from an incognito/private browsing tab to prevent session conflicts!**
 
 YouTube analyzes session behavior patterns to detect automation. When you use cookies from your regular browsing session in the bot while simultaneously browsing YouTube in your browser, it creates conflicting behavioral signatures that trigger bot detection systems. Follow these steps:
 
-1. **Open YouTube in incognito/private mode**
+1. **Open YouTube in incognito/private mode and log into your account**
 2. **Install the [cookies.txt browser extension](https://github.com/hrdl-github/cookies-txt)**
 3. **Navigate to any YouTube video in the incognito tab**
 4. **Export cookies using the extension** - save as `cookies.txt` in the project directory
@@ -134,12 +134,12 @@ YouTube analyzes session behavior patterns to detect automation. When you use co
 
 ## 🎮 Usage
 
-### Starting the Bot
+### Starting the bot
 ```bash
 python main.py
 ```
 
-### Using the Bot
+### Using the bot
 
 1. **Start the bot:**
    ```
@@ -150,7 +150,7 @@ python main.py
    - Paste any supported YouTube URL
    - The bot will analyze and show available qualities
 
-3. **Choose Quality:**
+3. **Choose quality:**
    - Click on your preferred video quality
    - Or click "🎵 Download MP3" for audio only
 
@@ -158,7 +158,7 @@ python main.py
    - The bot will download and send your file
    - Progress is shown in real-time
 
-### Supported URL Formats
+### Supported URL formats
 ```
 https://www.youtube.com/watch?v=VIDEO_ID
 https://youtu.be/VIDEO_ID
@@ -167,40 +167,22 @@ https://music.youtube.com/watch?v=VIDEO_ID
 https://www.youtube.com/embed/VIDEO_ID
 ```
 
-## 🤖 Bot Architecture
-
-### Pyrogram vs Standard Bot API
-
-**This bot uses Pyrogram (User API) instead of the standard Bot API for several advantages:**
-
-| Feature | Standard Bot API | Pyrogram User API |
-|---------|------------------|-------------------|
-| **File Size Limit** | 50MB maximum | 2GB maximum |
-| **API Requirements** | Bot token only | Bot token + API credentials |
-| **Setup Complexity** | Simple | Slightly more complex |
-| **Large Video Support** | ❌ Most videos too large | ✅ Supports high-quality videos |
-
-**Why API credentials are needed:**
-- API ID and API Hash authenticate your application with Telegram
-- These credentials enable User API access for larger file uploads
-- Without them, the bot would be limited to tiny 50MB files
-
 ## 🔐 Access Control
 
-### Public vs Private Mode
+### Public vs Private mode
 
-**Public Mode (Default)**
+**Public mode (default)**
 - Anyone can use the bot
 - No user restrictions
 - Set `WHITELIST_ENABLED=false` in `.env`
 
-**Private Mode (Whitelist)**
+**Private mode (whitelist)**
 - Only authorized users can use the bot
 - Set `WHITELIST_ENABLED=true` in `.env`
 - Add user IDs to `WHITELIST` (comma-separated)
 - Unauthorized users are silently ignored
 
-### Enabling Private Mode
+### Enabling Private mode
 
 1. **Set whitelist enabled:**
    ```env
@@ -214,13 +196,13 @@ https://www.youtube.com/embed/VIDEO_ID
 
 3. **Restart the bot** for changes to take effect
 
-### Verifying Configuration
+### Verifying configuration
 
 When the bot starts, it will display the current access mode:
 - **Public mode**: `🌐 Public mode: Bot is open to all users`
 - **Private mode**: `🔒 Whitelist enabled: X authorized users`
 
-## 📁 Project Structure
+## 📁 Project structure
 
 ```
 YouTubeBot/
@@ -235,7 +217,7 @@ YouTubeBot/
 
 ## ⚙️ Configuration
 
-### Environment Variables
+### Environment variables
 
 | Variable | Description | Example |
 |----------|-------------|---------|
@@ -246,15 +228,9 @@ YouTubeBot/
 | `WHITELIST` | Authorized user IDs (when enabled) | `123456789,987654321` |
 | `COOKIES_PATH` | Path to incognito cookies file | `cookies.txt` |
 
-### File Size Limits
-- **Pyrogram User API**: Up to 2GB file uploads (instead of 50MB Bot API limit)
-- **Auto-rejection**: Files exceeding 2GB are automatically rejected
-- **Progress tracking**: Real-time progress for large files
-- **Why this matters**: Allows downloading high-quality, long-duration videos that would be impossible with regular bots
-
 ## 🛠️ Troubleshooting
 
-### Common Issues
+### Common issues
 
 1. **"FFmpeg not found"**
    - Install FFmpeg and ensure it's in your PATH
@@ -283,17 +259,6 @@ YouTubeBot/
    - **Cause**: Session behavior analysis detected conflicting usage patterns
    - **Solution**: Use dedicated incognito cookies and avoid browsing YouTube with the same session
 
-7. **Videos won't download**
-   - Check internet connection
-   - Some videos may be geo-blocked or unavailable
-   - Try refreshing cookies from a new incognito session
-
-### Logs
-The bot provides detailed logging to help diagnose issues:
-- Download progress and errors
-- URL processing steps
-- FFmpeg detection results
-
 ## 🔒 Security Notes
 
 - **Keep your `.env` file secure** - it contains sensitive API credentials
@@ -301,27 +266,6 @@ The bot provides detailed logging to help diagnose issues:
 - **Monitor usage** - the bot can download large files that consume bandwidth
 - **Regular updates** - keep yt-dlp updated for best compatibility
 - **Cookie security** - protect your `cookies.txt` file as it contains login session data
-- **Session isolation** - use dedicated incognito cookies to prevent conflicts with regular browsing
-
-## 📝 License
-
-This project is for educational purposes. Respect YouTube's Terms of Service and copyright laws.
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
-
-## 📞 Support
-
-If you encounter issues:
-1. Check the troubleshooting section above
-2. Review the logs for error messages
-3. Ensure all dependencies are installed correctly
-4. Verify your configuration in `.env`
 
 ---
 

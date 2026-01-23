@@ -14,6 +14,12 @@ from mutagen.id3 import ID3, TIT2, TPE1, TALB, APIC
 import subprocess
 from dotenv import load_dotenv
 
+# Ensure Deno is in PATH for yt-dlp
+deno_path = os.path.expanduser("~/.deno/bin")
+if deno_path not in os.environ.get('PATH', ''):
+    os.environ['PATH'] = f"{deno_path}:{os.environ.get('PATH', '')}"
+    logging.info(f"Added Deno to PATH: {deno_path}")
+
 # Find ffmpeg path
 def find_ffmpeg_path():
     try:
@@ -129,6 +135,12 @@ os.makedirs(DOWNLOAD_PATH, exist_ok=True)
 # Create a thread pool executor for running yt-dlp downloads
 thread_pool = ThreadPoolExecutor(max_workers=4)
 
+# Enable logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+
 print("🤖 Starting...")
 
 # Print whitelist status
@@ -197,23 +209,34 @@ def should_include_quality(quality_info):
     height = quality_info.get('height')
     fps = quality_info.get('fps')
     quality_str = quality_info.get('quality', '').lower()
+    vcodec = quality_info.get('vcodec', '').lower()
 
     # We must have height info for a video format
     if not height:
+        logging.debug(f"Skipping format without height: {quality_info}")
+        return False
+
+    # Filter out image/storyboard codecs
+    if vcodec in ['none', 'images'] or 'storyboard' in vcodec:
+        logging.debug(f"Skipping storyboard/image format: {quality_info}")
         return False
 
     # Filter out HDR formats which may have color issues
-    if 'hdr' in quality_str:
+    if 'hdr' in quality_str or 'hdr' in vcodec:
+        logging.debug(f"Skipping HDR format: {quality_info}")
         return False
 
     # Filter out storyboards
     if 'storyboard' in quality_str:
+        logging.debug(f"Skipping storyboard: {quality_info}")
         return False
 
-    # Filter out high-frame-rate videos for resolutions below 720p
-    if fps and fps > 30 and height < 720:
+    # Filter out very low quality (below 144p)
+    if height < 144:
+        logging.debug(f"Skipping very low quality: {quality_info}")
         return False
 
+    logging.debug(f"Including format: {quality_info}")
     return True
 
 
@@ -309,6 +332,7 @@ async def download_and_send_audio(client, callback_query, video_url):
             'filesize_limit': MAX_FILE_SIZE,
             'ffmpeg_location': FFMPEG_PATH,
             'prefer_ffmpeg': True,
+            'remote_components': 'ejs:github',
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
@@ -457,7 +481,15 @@ def get_video_qualities(url):
                 'extract_flat': False,
                 'cookiefile': COOKIES_PATH if os.path.exists(COOKIES_PATH) else None,
                 'nocheckcertificate': True,
-                'socket_timeout': 15,  # Increase timeout for slow connections
+                'socket_timeout': 30,
+                'remote_components': 'ejs:github',
+                'skip_download': True,
+                'no_check_formats': True,  # Don't verify format availability during extraction
+                'ignoreerrors': False,
+                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'extractor_retries': 3,
+                'fragment_retries': 3,
+                'file_access_retries': 3,
             }
 
             logging.debug(f"YDL options: {ydl_opts}")
@@ -466,7 +498,16 @@ def get_video_qualities(url):
                 logging.info(f"Starting info extraction (attempt {attempt+1}/{max_retries})")
                 try:
                     info = ydl.extract_info(url, download=False)
-                    logging.debug(f"Raw info: {info}")
+                    
+                    # If info is None or empty, retry
+                    if not info:
+                        logging.error("No info returned from yt-dlp")
+                        if attempt < max_retries - 1:
+                            time.sleep(retry_delay)
+                            continue
+                        return None, "Could not extract video information"
+                    
+                    logging.debug(f"Successfully extracted info for: {info.get('title', 'Unknown')}")
                 except yt_dlp.utils.DownloadError as e:
                     error_msg = str(e)
                     if 'getaddrinfo failed' in error_msg or 'Unable to download webpage' in error_msg:
@@ -502,12 +543,12 @@ def get_video_qualities(url):
                     best_audio_size = best_audio.get('filesize') or best_audio.get('filesize_approx') or 0
 
                 qualities = []
-                seen_qualities = set()
+                seen_qualities = {}  # Changed to dict to track best format per quality
 
                 for f in formats:
                     logging.debug(f"Processing format: {f}")
                     # Only include video formats with video codec
-                    if f.get('vcodec') != 'none':
+                    if f.get('vcodec') != 'none' and f.get('vcodec') != 'images':
                         quality = f.get('format_note', f.get('height', 'N/A'))
                         
                         # Use height to create a cleaner quality label
@@ -515,41 +556,50 @@ def get_video_qualities(url):
                         if height:
                             quality = f"{height}p"
                             # Add FPS if it's high
-                            if f.get('fps', 0) > 30:
-                                quality += str(f.get('fps'))
+                            fps = f.get('fps', 0)
+                            if fps and fps > 30:
+                                quality += f"{int(fps)}"
 
-                        if quality not in seen_qualities:
-                            # Check if format has audio
-                            has_audio = f.get('acodec') != 'none'
+                        # Check if format has audio
+                        has_audio = f.get('acodec') != 'none'
 
-                            # Estimate total filesize
-                            video_filesize = f.get('filesize') or f.get('filesize_approx')
-                            
-                            total_filesize = video_filesize
-                            if not has_audio and video_filesize is not None:
-                                total_filesize += best_audio_size
+                        # Estimate total filesize
+                        video_filesize = f.get('filesize') or f.get('filesize_approx')
+                        
+                        total_filesize = video_filesize
+                        if not has_audio and video_filesize is not None:
+                            total_filesize += best_audio_size
 
-                            quality_info = {
-                                'quality': quality,
-                                'ext': f.get('ext', 'N/A'),
-                                'filesize': total_filesize,
-                                'format_id': f.get('format_id', 'N/A'),
-                                'has_audio': has_audio,
-                                'height': f.get('height'),
-                                'fps': f.get('fps')
-                            }
+                        quality_info = {
+                            'quality': quality,
+                            'ext': f.get('ext', 'N/A'),
+                            'filesize': total_filesize,
+                            'format_id': f.get('format_id', 'N/A'),
+                            'has_audio': has_audio,
+                            'height': f.get('height'),
+                            'fps': f.get('fps'),
+                            'vcodec': f.get('vcodec', 'unknown'),
+                            'tbr': f.get('tbr', 0)  # Total bitrate for quality comparison
+                        }
 
-                            logging.debug(f"Quality info: {quality_info}")
+                        logging.debug(f"Quality info: {quality_info}")
 
-                            if should_include_quality(quality_info):
-                                qualities.append(quality_info)
-                                seen_qualities.add(quality)
+                        if should_include_quality(quality_info):
+                            # Keep the best format for each quality (highest bitrate)
+                            if quality not in seen_qualities or quality_info['tbr'] > seen_qualities[quality]['tbr']:
+                                seen_qualities[quality] = quality_info
+
+                # Convert dict values to list and sort by height
+                qualities = sorted(seen_qualities.values(), key=lambda x: x.get('height', 0), reverse=True)
 
                 if not qualities:
                     logging.error("No suitable qualities found after filtering")
-                    return None, "No suitable video qualities found"
+                    logging.info(f"Total formats found: {len(formats)}")
+                    logging.info(f"Video formats (vcodec != 'none'): {len([f for f in formats if f.get('vcodec') != 'none'])}")
+                    # Return a more helpful error message
+                    return None, "No suitable video qualities found. The video might be unavailable, age-restricted, or in an unsupported format."
 
-                logging.info(f"Successfully extracted {len(qualities)} qualities")
+                logging.info(f"Successfully extracted {len(qualities)} qualities: {[q['quality'] for q in qualities]}")
                 return qualities, info.get('title', 'Unknown Title')
                 
             # If we get here without returning, we need to retry
@@ -750,7 +800,8 @@ async def download_and_send_video(client, callback_query, format_id, video_url):
             'format': f'{format_id}+bestaudio/best',
             'quiet': True,
             'no_warnings': True,
-            'cookiefile': COOKIES_PATH
+            'cookiefile': COOKIES_PATH,
+            'remote_components': 'ejs:github',
         }
 
         info = await extract_info_async(loop, ydl_opts_info, video_url)
@@ -784,7 +835,8 @@ async def download_and_send_video(client, callback_query, format_id, video_url):
             'cookiefile': COOKIES_PATH,
             'ffmpeg_location': FFMPEG_PATH,
             'prefer_ffmpeg': True,
-            'merge_output_format': 'mp4'  # Force output as MP4
+            'merge_output_format': 'mp4',  # Force output as MP4
+            'remote_components': 'ejs:github',
         }
 
         # Step 5: Start the download
@@ -915,39 +967,35 @@ async def handle_youtube_link(client, message):
         logging.debug("Sending processing message")
         processing_msg = await message.reply_text("🔄 Processing video information...")
 
-        # Try extracting info with increasing timeouts
-        timeouts = [10, 20, 30]  # Try with 10s, then 20s, then 30s timeout
-        qualities = None
-        title = None
-        last_error = None
-
-        for timeout in timeouts:
-            try:
-                logging.info(f"Attempting extraction with {timeout}s timeout")
-
-                # Use asyncio.wait_for instead of asyncio.timeout
-                async def extract_with_timeout():
-                    return get_video_qualities(normalized_url)
-
-                qualities, title = await asyncio.wait_for(
-                    extract_with_timeout(),
-                    timeout=timeout
-                )
-
-                if qualities is not None:
-                    break
-            except asyncio.TimeoutError:
-                last_error = f"Timeout after {timeout}s"
-                logging.warning(f"Extraction timed out after {timeout}s")
-                continue
-            except Exception as e:
-                last_error = str(e)
-                logging.error(f"Extraction failed with timeout {timeout}s: {str(e)}")
-                continue
+        # Extract video qualities with timeout
+        logging.info(f"Attempting extraction with 30s timeout")
+        
+        try:
+            # Run extraction in thread pool with timeout
+            loop = asyncio.get_running_loop()
+            
+            async def extract_with_timeout():
+                return await loop.run_in_executor(thread_pool, get_video_qualities, normalized_url)
+            
+            qualities, title = await asyncio.wait_for(
+                extract_with_timeout(),
+                timeout=30.0
+            )
+            
+        except asyncio.TimeoutError:
+            error_msg = "❌ Error: Request timed out. The video might be unavailable or the server is slow. Please try again."
+            logging.error(f"Extraction timed out after 30s")
+            await processing_msg.edit_text(error_msg)
+            return
+        except Exception as e:
+            error_msg = f"❌ Error: {str(e)}"
+            logging.error(f"Extraction failed: {str(e)}", exc_info=True)
+            await processing_msg.edit_text(error_msg)
+            return
 
         if qualities is None:
-            error_msg = f"❌ Error: {last_error or title}"
-            logging.error(f"Final extraction failure: {error_msg}")
+            error_msg = f"❌ Error: {title if title else 'Failed to extract video information'}"
+            logging.error(f"Extraction returned None: {error_msg}")
             await processing_msg.edit_text(error_msg)
             return
 

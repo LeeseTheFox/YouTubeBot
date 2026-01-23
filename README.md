@@ -34,14 +34,17 @@ A powerful Telegram bot that downloads YouTube videos and audio with multiple qu
 ### System dependencies
 - **Python 3.7+**
 - **FFmpeg** (automatically detected)
+- **Deno** (required for YouTube JavaScript challenge solving)
 
 ### Python dependencies
 ```
 pyrogram          # User API client for large file uploads (up to 2GB)
-yt-dlp           # YouTube video downloader
-mutagen          # Audio metadata handling
-requests         # HTTP requests for thumbnails
-python-dotenv    # Environment variable management
+tgcrypto          # Cryptography speedup for Pyrogram
+yt-dlp            # YouTube video downloader
+yt-dlp-ejs        # JavaScript challenge solver for yt-dlp
+mutagen           # Audio metadata handling
+requests          # HTTP requests for thumbnails
+python-dotenv     # Environment variable management
 ```
 
 ## 📥 Getting the Repository
@@ -54,6 +57,10 @@ python-dotenv    # Environment variable management
 
 ### 1. Install dependencies
 ```bash
+# Install the latest nightly version of yt-dlp (recommended)
+pip install --upgrade --pre yt-dlp
+
+# Install other dependencies
 pip install -r requirements.txt
 ```
 
@@ -72,7 +79,34 @@ brew install ffmpeg
 **Windows:**
 Download from [ffmpeg.org](https://ffmpeg.org/download.html) and add to PATH.
 
-### 3. Set up the Telegram bot
+### 3. Install Deno (required for YouTube challenge solving)
+**Linux/macOS:**
+```bash
+curl -fsSL https://deno.land/install.sh | sh
+```
+
+Then add Deno to your PATH by adding these lines to your `~/.bashrc` or `~/.zshrc`:
+```bash
+export DENO_INSTALL="$HOME/.deno"
+export PATH="$DENO_INSTALL/bin:$PATH"
+```
+
+Reload your shell:
+```bash
+source ~/.bashrc  # or source ~/.zshrc
+```
+
+**Windows:**
+```powershell
+irm https://deno.land/install.ps1 | iex
+```
+
+Verify installation:
+```bash
+deno --version
+```
+
+### 4. Set up the Telegram bot
 
 **Why both bot token and API credentials?**
 This bot uses Pyrogram (Telegram User API) instead of the standard Bot API to bypass the 50MB file size limit. Regular bots can only send files up to 50MB, but User API allows up to 2GB uploads.
@@ -89,9 +123,15 @@ This bot uses Pyrogram (Telegram User API) instead of the standard Bot API to by
    - Create a new application to get `api_id` and `api_hash`
    - **These credentials allow the bot to upload files up to 2GB**
 
-### 4. Configure environment
+### 5. Configure environment
 
-Create a `.env` file in the project root:
+Create a `.env` file in the project root (you can copy from `.env.example`):
+
+```bash
+cp .env.example .env
+```
+
+Then edit `.env` with your values:
 
 ```env
 # Telegram Bot Configuration
@@ -107,7 +147,7 @@ WHITELIST=123456789,987654321
 COOKIES_PATH=cookies.txt
 ```
 
-### 5. User Access Control (Optional)
+### 6. User Access Control (Optional)
 
 **By default, the bot is open to all users.** To restrict access:
 
@@ -115,7 +155,7 @@ COOKIES_PATH=cookies.txt
 2. **Find user IDs** by messaging [@userinfobot](https://t.me/userinfobot)
 3. **Add authorized user IDs** to the `WHITELIST` in `.env` (comma-separated)
 
-### 6. Cookie Setup (Critical for reliability)
+### 7. Cookie Setup (Critical for reliability)
 
 **⚠️ IMPORTANT: Cookies must be exported from an incognito/private browsing tab to prevent session conflicts!**
 
@@ -247,7 +287,12 @@ YouTubeBot/
    - Restart the bot after changes
 
 4. **Videos fail to download / "Sign in to confirm you're not a bot"**
-   - **Most common cause**: Session behavior conflict from using shared cookies
+   - **Most common cause**: Missing Deno or yt-dlp-ejs package
+   - **Solution**: 
+     - Install Deno: `curl -fsSL https://deno.land/install.sh | sh`
+     - Install yt-dlp-ejs: `pip install yt-dlp-ejs`
+     - Ensure Deno is in your PATH
+   - **Alternative cause**: Session behavior conflict from using shared cookies
    - **Solution**: Re-export cookies from an incognito tab using [cookies.txt](https://github.com/hrdl-github/cookies-txt)
    - Ensure `cookies.txt` file exists in the project directory
 
@@ -256,8 +301,11 @@ YouTubeBot/
    - Re-export cookies from an incognito session
 
 6. **Bot works initially but stops after a few hours/days**
-   - **Cause**: Session behavior analysis detected conflicting usage patterns
-   - **Solution**: Use dedicated incognito cookies and avoid browsing YouTube with the same session
+   - **Cause**: Session behavior analysis detected conflicting usage patterns or Deno/yt-dlp-ejs missing
+   - **Solution**: 
+     - Verify Deno is installed and in PATH: `deno --version`
+     - Verify yt-dlp-ejs is installed: `pip list | grep yt-dlp-ejs`
+     - Use dedicated incognito cookies and avoid browsing YouTube with the same session
 
 ## 🔒 Security Notes
 

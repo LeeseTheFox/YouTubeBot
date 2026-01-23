@@ -1,5 +1,7 @@
 pyrogram
-yt-dlp
+tgcrypto
+yt-dlp>=2025.1.1
+yt-dlp-ejs
 mutagen
 requests
 python-dotenv

@@ -33,7 +33,7 @@ A powerful Telegram bot that downloads YouTube videos and audio with multiple qu
 
 ### System dependencies
 - **Python 3.7+**
-- **FFmpeg** (automatically detected)
+- **FFmpeg**
 - **Deno** (required for YouTube JavaScript challenge solving)
 
 ### Python dependencies

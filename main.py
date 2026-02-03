@@ -2,6 +2,7 @@ import asyncio
 import os
 import re
 import shutil
+import sys
 import time
 import uuid
 import logging
@@ -93,12 +94,14 @@ def is_user_allowed(user_id: int) -> bool:
     return user_id in WHITELIST
 
 
-# Initialize the bot
+# Initialize the bot with increased connection resilience
 app = Client(
     "youtube_quality_bot",
     api_id=os.getenv('API_ID'),
     api_hash=os.getenv('API_HASH'),
-    bot_token=os.getenv('BOT_TOKEN')
+    bot_token=os.getenv('BOT_TOKEN'),
+    sleep_threshold=60,  # Increase sleep threshold to prevent disconnects during long operations
+    max_concurrent_transmissions=1  # Limit concurrent transmissions to reduce connection stress
 )
 
 
@@ -140,6 +143,19 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
+
+# Global exception handler to catch uncaught exceptions
+def handle_exception(exc_type, exc_value, exc_traceback):
+    """Log uncaught exceptions before the application crashes."""
+    if issubclass(exc_type, KeyboardInterrupt):
+        # Allow KeyboardInterrupt to work normally
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+    
+    logging.critical("Uncaught exception!", exc_info=(exc_type, exc_value, exc_traceback))
+
+# Install the global exception handler
+sys.excepthook = handle_exception
 
 print("🤖 Starting...")
 
@@ -447,10 +463,36 @@ async def download_and_send_audio(client, callback_query, video_url):
         # Delete the status message
         await status_message.delete()
 
+    except ConnectionResetError as e:
+        logging.error(f"Connection reset during audio download: {str(e)}", exc_info=True)
+        error_message = "❌ Connection lost during download. The audio is still being downloaded in the background."
+        try:
+            if status_message:
+                await status_message.edit_text(error_message)
+        except Exception:
+            logging.error("Could not send error message due to connection loss")
+        # Don't clean up files - download might still be in progress
+        
+    except ConnectionError as e:
+        logging.error(f"Connection error during audio download: {str(e)}", exc_info=True)
+        error_message = "❌ Network connection error. Please try again."
+        try:
+            if status_message:
+                await status_message.edit_text(error_message)
+        except Exception:
+            logging.error("Could not send error message due to connection loss")
+        # Clean up in case of error
+        if temp_filepath and os.path.exists(temp_filepath):
+            os.remove(temp_filepath)
+            
     except Exception as e:
+        logging.error(f"Error in download_and_send_audio: {str(e)}", exc_info=True)
         error_message = f"❌ Error: {str(e)}"
-        if status_message:
-            await status_message.edit_text(error_message)
+        try:
+            if status_message:
+                await status_message.edit_text(error_message)
+        except Exception as send_error:
+            logging.error(f"Could not send error message: {str(send_error)}")
 
         # Clean up in case of error
         if temp_filepath and os.path.exists(temp_filepath):
@@ -579,15 +621,46 @@ def get_video_qualities(url):
                             'height': f.get('height'),
                             'fps': f.get('fps'),
                             'vcodec': f.get('vcodec', 'unknown'),
-                            'tbr': f.get('tbr', 0)  # Total bitrate for quality comparison
+                            'tbr': f.get('tbr', 0),  # Total bitrate for quality comparison
+                            'protocol': f.get('protocol', 'unknown'),  # Track protocol for HLS vs HTTPS preference
                         }
 
                         logging.debug(f"Quality info: {quality_info}")
 
                         if should_include_quality(quality_info):
-                            # Keep the best format for each quality (highest bitrate)
-                            if quality not in seen_qualities or quality_info['tbr'] > seen_qualities[quality]['tbr']:
+                            # Keep the best format for each quality
+                            # Prefer HTTPS (direct download) over HLS (m3u8) to avoid empty file errors
+                            if quality not in seen_qualities:
                                 seen_qualities[quality] = quality_info
+                            else:
+                                existing = seen_qualities[quality]
+                                existing_is_https = existing.get('protocol') in ('https', 'http')
+                                new_is_https = quality_info.get('protocol') in ('https', 'http')
+                                
+                                # Check codecs
+                                existing_is_h264 = existing.get('vcodec', '').startswith('avc1')
+                                new_is_h264 = quality_info.get('vcodec', '').startswith('avc1')
+                                
+                                # Decision logic for "Best" format for this quality:
+                                # 1. Codec: H.264 (avc1) > Others (Critical for macOS/iOS compatibility)
+                                # 2. Protocol: HTTPS > HLS (Better reliability, though HLS is now improved)
+                                # 3. Bitrate: Higher > Lower
+                                
+                                use_new = False
+                                
+                                if new_is_h264 and not existing_is_h264:
+                                    use_new = True
+                                elif new_is_h264 == existing_is_h264:
+                                    # Codecs priority is same, check protocol
+                                    if new_is_https and not existing_is_https:
+                                        use_new = True
+                                    elif new_is_https == existing_is_https:
+                                        # Protocols are same, check bitrate
+                                        if quality_info['tbr'] > existing['tbr']:
+                                            use_new = True
+                                            
+                                if use_new:
+                                    seen_qualities[quality] = quality_info
 
                 # Convert dict values to list and sort by height
                 qualities = sorted(seen_qualities.values(), key=lambda x: x.get('height', 0), reverse=True)
@@ -753,20 +826,36 @@ async def download_video_async(loop, ydl_opts, url):
     """Run yt-dlp download in a separate thread"""
 
     def download():
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            return ydl.download([url])
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                return ydl.download([url])
+        except Exception as e:
+            logging.error(f"Error in download thread for {url}: {str(e)}", exc_info=True)
+            raise  # Re-raise to propagate to caller
 
-    return await loop.run_in_executor(thread_pool, download)
+    try:
+        return await loop.run_in_executor(thread_pool, download)
+    except Exception as e:
+        logging.error(f"Exception caught from executor during download: {str(e)}", exc_info=True)
+        raise
 
 
 async def extract_info_async(loop, ydl_opts, url):
     """Extract video info in a separate thread"""
 
     def extract():
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            return ydl.extract_info(url, download=False)
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                return ydl.extract_info(url, download=False)
+        except Exception as e:
+            logging.error(f"Error in extraction thread for {url}: {str(e)}", exc_info=True)
+            raise  # Re-raise to propagate to caller
 
-    return await loop.run_in_executor(thread_pool, extract)
+    try:
+        return await loop.run_in_executor(thread_pool, extract)
+    except Exception as e:
+        logging.error(f"Exception caught from executor during extraction: {str(e)}", exc_info=True)
+        raise
 
 
 async def download_and_send_video(client, callback_query, format_id, video_url):
@@ -796,8 +885,12 @@ async def download_and_send_video(client, callback_query, format_id, video_url):
                 pass
 
         # Step 1: Extract video metadata for pre-check and accurate file size
+        # Use format selection that strictly prefers H.264 (avc1) for compatibility
+        # Then prefers HTTPS over HLS, and AAC audio
+        format_selector = f'({format_id}[vcodec^=avc1]+bestaudio[acodec^=mp4a]/({format_id})[vcodec^=avc1]+bestaudio/({format_id})+bestaudio[acodec^=mp4a]/({format_id})+bestaudio/best)'
+        
         ydl_opts_info = {
-            'format': f'{format_id}+bestaudio/best',
+            'format': format_selector,
             'quiet': True,
             'no_warnings': True,
             'cookiefile': COOKIES_PATH,
@@ -825,8 +918,9 @@ async def download_and_send_video(client, callback_query, format_id, video_url):
         final_filepath = os.path.join(DOWNLOAD_PATH, final_filename)
 
         # Step 4: Configure yt-dlp for downloading
+        # Enhanced settings to handle HLS streams more reliably and ensure compatibility
         ydl_opts = {
-            'format': f'{format_id}+bestaudio/best',  # Ensure audio is included
+            'format': format_selector,  # Prefer direct HTTPS over HLS
             'outtmpl': temp_filepath,
             'quiet': True,
             'no_warnings': True,
@@ -836,7 +930,39 @@ async def download_and_send_video(client, callback_query, format_id, video_url):
             'ffmpeg_location': FFMPEG_PATH,
             'prefer_ffmpeg': True,
             'merge_output_format': 'mp4',  # Force output as MP4
+            
+            # Compatibility improvements
+            'writethumbnail': True,  # Download thumbnail for embedding
+            'postprocessors': [
+                {'key': 'FFmpegMetadata', 'add_chapters': True, 'add_metadata': True},
+                {'key': 'FFmpegThumbnailsConvertor', 'format': 'jpg'},  # Convert thumbnail to JPG for Apple compatibility
+                {'key': 'EmbedThumbnail'},  # Embed thumbnail as cover art
+            ],
+            'postprocessor_args': {
+                'FFmpegMerger': [
+                    '-movflags', '+faststart',
+                    '-pix_fmt', 'yuv420p',  # Compatibility: Ensure 8-bit YUV420 color
+                    '-vf', 'setsar=1',      # Compatibility: Force square pixels (fixes 1:1 stretching)
+                    '-c:a', 'aac',          # Compatibility: Ensure AAC audio
+                    '-colorspace', 'bt709',
+                    '-color_primaries', 'bt709',
+                    '-color_trc', 'bt709',
+                    '-color_range', 'tv'
+                ],
+                'EmbedThumbnail': [
+                    '-movflags', '+faststart'  # Ensure faststart is preserved after thumbnail embedding
+                ]
+            },
+            
             'remote_components': 'ejs:github',
+            # HLS/fragment download reliability improvements
+            'hls_prefer_native': False,  # Use ffmpeg for HLS (more reliable)
+            'fragment_retries': 10,  # Retry failed fragments more times
+            'retries': 10,  # Overall download retries
+            'file_access_retries': 5,  # Retry file access issues
+            'extractor_retries': 5,  # Retry extractor issues
+            'socket_timeout': 30,  # Timeout for network operations
+            'http_chunk_size': 10485760,  # 10MB chunks for better reliability
         }
 
         # Step 5: Start the download
@@ -876,25 +1002,76 @@ async def download_and_send_video(client, callback_query, format_id, video_url):
                     pass
 
         # Step 7: Upload video to Telegram
+        
+        # Locate the thumbnail file (yt-dlp saves it with the same basename as temp file but .jpg extension)
+        thumb_path = None
+        if temp_filepath:
+            base_name = os.path.splitext(temp_filepath)[0]
+            possible_thumb = f"{base_name}.jpg"
+            if os.path.exists(possible_thumb):
+                thumb_path = possible_thumb
+        
         await client.send_video(
             chat_id=callback_query.message.chat.id,
             video=final_filepath,
             caption=f"📹 {title}",
+            duration=info.get('duration'),
+            width=info.get('width'),
+            height=info.get('height'),
+            thumb=thumb_path,
+            supports_streaming=True,
             progress=upload_progress
         )
 
         # Step 8: Clean up
         if os.path.exists(final_filepath):
             os.remove(final_filepath)
+            
+        if thumb_path and os.path.exists(thumb_path):
+            try:
+                os.remove(thumb_path)
+            except Exception:
+                pass
 
         await status_message.delete()
 
+    except ConnectionResetError as e:
+        logging.error(f"Connection reset during download: {str(e)}", exc_info=True)
+        error_message = "❌ Connection lost during download. The video is still being downloaded in the background."
+        try:
+            if status_message:
+                await status_message.edit_text(error_message)
+        except Exception:
+            # If we can't edit the message, the connection is really gone
+            logging.error("Could not send error message due to connection loss")
+        
+        # Don't clean up files - download might still be in progress
+        
+    except ConnectionError as e:
+        logging.error(f"Connection error during download: {str(e)}", exc_info=True)
+        error_message = "❌ Network connection error. Please try again."
+        try:
+            if status_message:
+                await status_message.edit_text(error_message)
+        except Exception:
+            logging.error("Could not send error message due to connection loss")
+        
+        # Clean up in case of error
+        if temp_filepath and os.path.exists(temp_filepath):
+            os.remove(temp_filepath)
+        if final_filepath and os.path.exists(final_filepath):
+            os.remove(final_filepath)
+            
     except Exception as e:
+        logging.error(f"Error in download_and_send_video: {str(e)}", exc_info=True)
         error_message = f"❌ Error: {str(e)}"
-        if status_message:
-            await status_message.edit_text(error_message)
-        else:
-            await callback_query.message.reply_text(error_message)
+        try:
+            if status_message:
+                await status_message.edit_text(error_message)
+            else:
+                await callback_query.message.reply_text(error_message)
+        except Exception as send_error:
+            logging.error(f"Could not send error message: {str(send_error)}")
 
         # Clean up in case of error
         if temp_filepath and os.path.exists(temp_filepath):
@@ -1150,7 +1327,7 @@ async def handle_quality_selection(client, callback_query):
 
 
 # Run the bot
-print("✅ Bot is ready! Send me a YouTube link to get started.")
 if __name__ == "__main__":
     clear_downloads_folder()  # Clear downloads folder on startup
+    print("✅ Bot is ready! Send me a YouTube link to get started.")
     app.run()

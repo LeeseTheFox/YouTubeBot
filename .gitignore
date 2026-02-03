@@ -6,6 +6,7 @@
 # Sensitive Files
 cookies.txt
 *.session
+start.sh
 
 # Downloads Directory (temporary files)
 downloads/

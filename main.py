@@ -526,7 +526,6 @@ def get_video_qualities(url):
                 'socket_timeout': 30,
                 'remote_components': 'ejs:github',
                 'skip_download': True,
-                'no_check_formats': True,  # Don't verify format availability during extraction
                 'ignoreerrors': False,
                 'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'extractor_retries': 3,
@@ -922,6 +921,7 @@ async def download_and_send_video(client, callback_query, format_id, video_url):
         ydl_opts = {
             'format': format_selector,  # Prefer direct HTTPS over HLS
             'outtmpl': temp_filepath,
+            'overwrites': True,  # Overwrite leftover files from failed attempts
             'quiet': True,
             'no_warnings': True,
             'no_progress': True,
@@ -938,21 +938,7 @@ async def download_and_send_video(client, callback_query, format_id, video_url):
                 {'key': 'FFmpegThumbnailsConvertor', 'format': 'jpg'},  # Convert thumbnail to JPG for Apple compatibility
                 {'key': 'EmbedThumbnail'},  # Embed thumbnail as cover art
             ],
-            'postprocessor_args': {
-                'FFmpegMerger': [
-                    '-movflags', '+faststart',
-                    '-pix_fmt', 'yuv420p',  # Compatibility: Ensure 8-bit YUV420 color
-                    '-vf', 'setsar=1',      # Compatibility: Force square pixels (fixes 1:1 stretching)
-                    '-c:a', 'aac',          # Compatibility: Ensure AAC audio
-                    '-colorspace', 'bt709',
-                    '-color_primaries', 'bt709',
-                    '-color_trc', 'bt709',
-                    '-color_range', 'tv'
-                ],
-                'EmbedThumbnail': [
-                    '-movflags', '+faststart'  # Ensure faststart is preserved after thumbnail embedding
-                ]
-            },
+
             
             'remote_components': 'ejs:github',
             # HLS/fragment download reliability improvements
@@ -965,9 +951,52 @@ async def download_and_send_video(client, callback_query, format_id, video_url):
             'http_chunk_size': 10485760,  # 10MB chunks for better reliability
         }
 
-        # Step 5: Start the download
-        await status_message.edit_text("⬇️ Starting download...")
-        await download_video_async(loop, ydl_opts, video_url)
+        def cleanup_temp_files(base_path):
+            """Remove all intermediate files ffmpeg might leave behind for a given base path.
+
+            ffmpeg exits with code 183 ('file already exists') if any output file from a
+            previous attempt is still on disk. We delete all files sharing the same stem.
+            """
+            import glob as _glob
+            # Derive the stem without the .mp4 extension (e.g. downloads/abc123)
+            stem = os.path.splitext(base_path)[0]
+            # Match everything that starts with this stem (covers .webm, .mkv, .m4a, .jpg, .part, etc.)
+            for leftover in _glob.glob(f"{_glob.escape(stem)}*"):
+                try:
+                    os.remove(leftover)
+                    logging.debug(f"Cleaned up temp file: {leftover}")
+                except OSError as e:
+                    logging.warning(f"Could not remove temp file {leftover}: {e}")
+
+        # Step 5: Start the download (with retry on failure)
+        # Clean up any orphaned temp files from prior crashed downloads before starting
+        cleanup_temp_files(temp_filepath)
+
+        max_download_attempts = 2
+        for download_attempt in range(max_download_attempts):
+            try:
+                await status_message.edit_text(
+                    f"⬇️ {'Retrying' if download_attempt > 0 else 'Starting'} download..."
+                )
+                await download_video_async(loop, ydl_opts, video_url)
+                break  # Download succeeded
+            except yt_dlp.utils.DownloadError as dl_err:
+                logging.warning(
+                    f"Download attempt {download_attempt + 1}/{max_download_attempts} "
+                    f"failed: {str(dl_err)}"
+                )
+                # Clean up ALL intermediate files ffmpeg may have created before retry
+                # (ffmpeg exits with code 183 "file already exists" if these are left behind)
+                cleanup_temp_files(temp_filepath)
+                if download_attempt >= max_download_attempts - 1:
+                    raise  # Re-raise on final attempt
+                # Try without thumbnail embedding on retry (it can cause ffmpeg failures)
+                ydl_opts_retry = ydl_opts.copy()
+                ydl_opts_retry['writethumbnail'] = False
+                ydl_opts_retry['postprocessors'] = [
+                    {'key': 'FFmpegMetadata', 'add_chapters': True, 'add_metadata': True},
+                ]
+                ydl_opts = ydl_opts_retry
 
         # Rename the downloaded file to the final filename
         if os.path.exists(temp_filepath):

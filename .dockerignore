@@ -1,0 +1,27 @@
+# Environment variables (contain API keys and tokens — inject at runtime)
+.env
+.env.*
+
+# Persistent data (mount as a volume at runtime instead)
+data/cookies.txt
+data/*.session
+
+# Temporary/generated files
+downloads/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Editor and OS noise
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.swo
+
+# Git internals
+.git/
+.gitignore

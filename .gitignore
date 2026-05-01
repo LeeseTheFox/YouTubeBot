@@ -7,6 +7,9 @@
 cookies.txt
 *.session
 
+# Runtime State (generated at runtime, should not be committed)
+data/whitelist.json
+
 # Downloads Directory (temporary files)
 downloads/
 *.mp4

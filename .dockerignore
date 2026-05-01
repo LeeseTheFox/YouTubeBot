@@ -5,6 +5,7 @@
 # Persistent data (mount as a volume at runtime instead)
 data/cookies.txt
 data/*.session
+data/whitelist.json
 
 # Temporary/generated files
 downloads/

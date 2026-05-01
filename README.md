@@ -153,7 +153,10 @@ COOKIES_PATH=cookies.txt
 
 1. **Enable the whitelist** by setting `WHITELIST_ENABLED=true` in `.env`
 2. **Find user IDs** by messaging [@userinfobot](https://t.me/userinfobot)
-3. **Add authorized user IDs** to the `WHITELIST` in `.env` (comma-separated)
+3. **Add authorized user IDs** to the `WHITELIST` in `.env` (comma-separated) - this is used only for initial seeding on first run
+4. **After first run**, the whitelist is stored in `data/whitelist.json` and persists across restarts
+
+**Important**: The `WHITELIST` environment variable is only used to seed the whitelist on the first run. After that, the bot reads from `data/whitelist.json`. To add or remove users after first run, edit `data/whitelist.json` directly or use admin commands (if implemented).
 
 ### 7. Cookie Setup (Critical for reliability)
 
@@ -207,6 +210,48 @@ https://music.youtube.com/watch?v=VIDEO_ID
 https://www.youtube.com/embed/VIDEO_ID
 ```
 
+## 🐳 Docker Deployment
+
+**Important**: Mount the `data/` directory as a persistent volume to preserve runtime state (whitelist, session, cookies) across container restarts.
+
+### Docker Run
+
+```bash
+docker build -t youtube-bot .
+
+docker run -d \
+  --name youtube-bot \
+  --restart unless-stopped \
+  -v $(pwd)/data:/app/data \
+  -e API_ID=your_api_id \
+  -e API_HASH=your_api_hash \
+  -e BOT_TOKEN=your_bot_token \
+  -e WHITELIST_ENABLED=false \
+  -e COOKIES_PATH=data/cookies.txt \
+  youtube-bot
+```
+
+### Docker Compose
+
+```yaml
+version: '3.8'
+
+services:
+  youtube-bot:
+    build: .
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+    environment:
+      - API_ID=${API_ID}
+      - API_HASH=${API_HASH}
+      - BOT_TOKEN=${BOT_TOKEN}
+      - WHITELIST_ENABLED=${WHITELIST_ENABLED:-false}
+      - COOKIES_PATH=data/cookies.txt
+```
+
+**Note**: The `WHITELIST` env var is only used on first run to seed `data/whitelist.json`. After that, edit the JSON file directly.
+
 ## 🔐 Access Control
 
 ### Public vs Private mode
@@ -219,7 +264,7 @@ https://www.youtube.com/embed/VIDEO_ID
 **Private mode (whitelist)**
 - Only authorized users can use the bot
 - Set `WHITELIST_ENABLED=true` in `.env`
-- Add user IDs to `WHITELIST` (comma-separated)
+- Whitelist is stored in `data/whitelist.json` (persists across restarts)
 - Unauthorized users are silently ignored
 
 ### Enabling Private mode
@@ -229,12 +274,40 @@ https://www.youtube.com/embed/VIDEO_ID
    WHITELIST_ENABLED=true
    ```
 
-2. **Add authorized users:**
+2. **Add authorized users (initial seed only):**
    ```env
    WHITELIST=123456789,987654321,555666777
    ```
+   
+   **Note**: This environment variable is only used to seed the whitelist on the **first run**. After that, the bot uses `data/whitelist.json`.
 
-3. **Restart the bot** for changes to take effect
+3. **Start the bot** - it will create `data/whitelist.json` with the users from the env var
+
+### Managing the whitelist after first run
+
+After the initial setup, the whitelist is stored in `data/whitelist.json`. To add or remove users:
+
+**Option 1: Edit the JSON file directly**
+
+The file has this structure:
+```json
+{
+  "user_ids": [123456789, 987654321, 555666777],
+  "version": 1
+}
+```
+
+Simply add or remove user IDs from the `user_ids` array and restart the bot.
+
+**Option 2: Delete and reseed (not recommended for production)**
+
+If you want to completely reset the whitelist:
+1. Stop the bot
+2. Delete `data/whitelist.json`
+3. Update the `WHITELIST` env var with new user IDs
+4. Start the bot - it will recreate the file from the env var
+
+**Important for Docker/Kubernetes deployments**: The `data/` directory must be mounted as a persistent volume. Otherwise, `whitelist.json` will be lost on container restart, and the bot will reseed from the env var each time.
 
 ### Verifying configuration
 
@@ -247,13 +320,18 @@ When the bot starts, it will display the current access mode:
 ```
 YouTubeBot/
 ├── main.py                    # Main bot application
-├── .env                       # Environment configuration
+├── runtime_state.py           # Runtime state management (whitelist persistence)
+├── .env                       # Environment configuration (static config only)
 ├── requirements.txt           # Python dependencies
-├── cookies.txt               # Incognito browser cookies (critical for reliability)
+├── data/                      # Persistent data directory (mount as volume in Docker)
+│   ├── whitelist.json        # User whitelist (runtime-mutable state)
+│   ├── cookies.txt           # Incognito browser cookies (critical for reliability)
+│   └── youtube_quality_bot.session # Telegram session file
 ├── downloads/                # Temporary download directory
-├── youtube_quality_bot.session # Telegram session file
 └── README.md                 # This file
 ```
+
+**Important**: The `data/` directory contains runtime-mutable state and should be mounted as a persistent volume in containerized deployments. This ensures that the whitelist, session, and cookies persist across container restarts.
 
 ## ⚙️ Configuration
 
@@ -265,8 +343,8 @@ YouTubeBot/
 | `API_HASH` | Telegram User API Hash (enables 2GB uploads) | `abcdef123456...` |
 | `BOT_TOKEN` | Bot token from BotFather | `123456:ABC-DEF...` |
 | `WHITELIST_ENABLED` | Enable user whitelist (true/false) | `false` |
-| `WHITELIST` | Authorized user IDs (when enabled) | `123456789,987654321` |
-| `COOKIES_PATH` | Path to incognito cookies file | `cookies.txt` |
+| `WHITELIST` | Initial seed for authorized user IDs (first run only, then stored in `data/whitelist.json`) | `123456789,987654321` |
+| `COOKIES_PATH` | Path to incognito cookies file | `data/cookies.txt` |
 
 ## 🛠️ Troubleshooting
 
@@ -283,8 +361,11 @@ YouTubeBot/
 
 3. **"User not authorized"**
    - Check if `WHITELIST_ENABLED=true` in `.env`
-   - If whitelist is enabled, add your user ID to the `WHITELIST` in `.env`
-   - Restart the bot after changes
+   - If whitelist is enabled, check `data/whitelist.json` to see if your user ID is in the list
+   - To add your user ID:
+     - **If first run**: Add it to the `WHITELIST` env var in `.env` before starting the bot
+     - **After first run**: Edit `data/whitelist.json` directly and add your user ID to the `user_ids` array
+   - Restart the bot after making changes to `data/whitelist.json`
 
 4. **Videos fail to download / "Sign in to confirm you're not a bot"**
    - **Most common cause**: Missing Deno or yt-dlp-ejs package

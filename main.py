@@ -16,6 +16,8 @@ from mutagen.id3 import APIC, ID3, TALB, TIT2, TPE1
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+from runtime_state import RuntimeState
+
 # Ensure Deno is in PATH for yt-dlp
 deno_path = os.path.expanduser("~/.deno/bin")
 if deno_path not in os.environ.get("PATH", ""):
@@ -74,18 +76,15 @@ else:
 # Load environment variables from .env file
 load_dotenv()
 
-# Whitelist configuration
+# Whitelist configuration (static config only)
+# WHITELIST_ENABLED controls whether whitelist checking is active
+# The actual whitelist is managed by RuntimeState in data/whitelist.json
 WHITELIST_ENABLED = os.getenv("WHITELIST_ENABLED", "false").lower() in (
     "true",
     "1",
     "yes",
     "on",
 )
-WHITELIST = [
-    int(user_id.strip())
-    for user_id in os.getenv("WHITELIST", "").split(",")
-    if user_id.strip()
-]
 
 # Get the directory where this script is located
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -93,6 +92,12 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 # Ensure the data directory exists (persisted across redeployments)
 DATA_DIR = os.path.join(SCRIPT_DIR, "data")
 os.makedirs(DATA_DIR, exist_ok=True)
+
+# Initialize runtime state manager
+# This handles the whitelist with persistence to data/whitelist.json
+# On first run, it seeds from the WHITELIST env var (if present)
+# On subsequent runs, it loads from the JSON file (env var is ignored)
+runtime_state = RuntimeState(DATA_DIR)
 
 # Get cookies path from environment and make it absolute based on script location
 # Default is data/cookies.txt so it is covered by the persistent data directory
@@ -112,8 +117,8 @@ def is_user_allowed(user_id: int) -> bool:
     # If whitelist is disabled, allow all users
     if not WHITELIST_ENABLED:
         return True
-    # If whitelist is enabled, check if user is in the whitelist
-    return user_id in WHITELIST
+    # If whitelist is enabled, check if user is in the runtime state whitelist
+    return runtime_state.is_user_whitelisted(user_id)
 
 
 # Initialize the bot with increased connection resilience
@@ -188,7 +193,9 @@ print("🤖 Starting...")
 
 # Print whitelist status
 if WHITELIST_ENABLED:
-    print(f"🔒 Whitelist enabled: {len(WHITELIST)} authorized users")
+    print(
+        f"🔒 Whitelist enabled: {runtime_state.get_whitelist_size()} authorized users"
+    )
 else:
     print("🌐 Public mode: Bot is open to all users")
 

@@ -3,6 +3,7 @@ import logging
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -92,6 +93,24 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 # Ensure the data directory exists (persisted across redeployments)
 DATA_DIR = os.path.join(SCRIPT_DIR, "data")
 os.makedirs(DATA_DIR, exist_ok=True)
+
+
+def cleanup_session_locks():
+    """Remove stale SQLite lock files from previous crashed sessions."""
+    session_base = os.path.join(DATA_DIR, "youtube_quality_bot.session")
+    lock_files = [
+        f"{session_base}-journal",
+        f"{session_base}-wal",
+        f"{session_base}-shm",
+    ]
+    for lock_file in lock_files:
+        if os.path.exists(lock_file):
+            try:
+                os.remove(lock_file)
+                logging.info(f"Removed stale lock file: {lock_file}")
+            except Exception as e:
+                logging.warning(f"Could not remove lock file {lock_file}: {e}")
+
 
 # Initialize runtime state manager
 # This handles the whitelist with persistence to data/whitelist.json
@@ -1511,6 +1530,25 @@ async def handle_quality_selection(client, callback_query):
 
 # Run the bot
 if __name__ == "__main__":
+    # Define signal handler for graceful shutdown
+    def signal_handler(signum, frame):
+        """Handle shutdown signals to ensure database is properly closed."""
+        signal_name = "SIGTERM" if signum == signal.SIGTERM else "SIGINT"
+        logging.info(f"Received {signal_name}, stopping gracefully...")
+        print(f"\n🛑 Received {signal_name}, shutting down gracefully...")
+        try:
+            app.stop()
+        except Exception as e:
+            logging.error(f"Error during shutdown: {e}")
+        sys.exit(0)
+
+    # Register signal handlers for graceful shutdown
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+
+    # Clean up stale SQLite lock files from previous crashed sessions
+    cleanup_session_locks()
+
     clear_downloads_folder()  # Clear downloads folder on startup
     print("✅ Bot is ready! Send me a YouTube link to get started.")
     app.run()

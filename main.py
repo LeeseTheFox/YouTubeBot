@@ -97,7 +97,12 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 def cleanup_session_locks():
     """Remove stale SQLite lock files from previous crashed sessions."""
+    import sqlite3
+
     session_base = os.path.join(DATA_DIR, "youtube_quality_bot.session")
+    session_file = session_base
+
+    # First, remove auxiliary lock files
     lock_files = [
         f"{session_base}-journal",
         f"{session_base}-wal",
@@ -110,6 +115,45 @@ def cleanup_session_locks():
                 logging.info(f"Removed stale lock file: {lock_file}")
             except Exception as e:
                 logging.warning(f"Could not remove lock file {lock_file}: {e}")
+
+    # Test if the main session database is accessible
+    if os.path.exists(session_file):
+        try:
+            # Try to open the database with a short timeout
+            conn = sqlite3.connect(session_file, timeout=2.0)
+            # Try to execute a simple query to verify it's not locked
+            conn.execute("SELECT 1")
+            conn.close()
+            logging.info("Session database is accessible")
+        except sqlite3.OperationalError as e:
+            if "locked" in str(e).lower():
+                logging.warning(f"Session database is locked: {e}")
+                logging.warning("Attempting to remove locked session file...")
+                try:
+                    # Wait a moment for any processes to release the lock
+                    time.sleep(2)
+                    os.remove(session_file)
+                    logging.info(
+                        "Removed locked session file - bot will create a new session"
+                    )
+                    # Also remove auxiliary files again
+                    for lock_file in lock_files:
+                        if os.path.exists(lock_file):
+                            try:
+                                os.remove(lock_file)
+                            except:
+                                pass
+                except Exception as remove_error:
+                    logging.error(
+                        f"Could not remove locked session file: {remove_error}"
+                    )
+                    logging.error(
+                        "You may need to manually delete the session file or restart the container"
+                    )
+            else:
+                logging.warning(f"Session database error: {e}")
+        except Exception as e:
+            logging.warning(f"Could not test session database: {e}")
 
 
 # Initialize runtime state manager
@@ -1551,4 +1595,27 @@ if __name__ == "__main__":
 
     clear_downloads_folder()  # Clear downloads folder on startup
     print("✅ Bot is ready! Send me a YouTube link to get started.")
-    app.run()
+
+    try:
+        app.run()
+    except Exception as e:
+        error_msg = str(e)
+        if "database is locked" in error_msg.lower() or "sqlite" in error_msg.lower():
+            logging.error("Failed to start bot due to database lock error")
+            print("\n❌ ERROR: Database is locked!")
+            print("\nPossible causes:")
+            print("1. Another instance of the bot is already running")
+            print("2. The session file is corrupted or locked by the system")
+            print("3. Docker container was not properly stopped")
+            print("\nTroubleshooting steps:")
+            print("1. Check for other running instances: ps aux | grep main.py")
+            print("2. Stop all bot instances and wait 5 seconds before restarting")
+            print("3. If using Docker, try: docker-compose down && docker-compose up")
+            print(
+                f"4. Manually delete the session file: rm {os.path.join(DATA_DIR, 'youtube_quality_bot.session')}*"
+            )
+            print("5. Check if the data directory has proper permissions")
+            sys.exit(1)
+        else:
+            # Re-raise other exceptions
+            raise

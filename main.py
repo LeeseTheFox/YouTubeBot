@@ -16,6 +16,7 @@ import yt_dlp
 from dotenv import load_dotenv
 from mutagen.id3 import APIC, ID3, TALB, TIT2, TPE1
 from pyrogram import Client, filters
+from pyrogram.enums import ParseMode
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from runtime_state import RuntimeState
@@ -558,7 +559,7 @@ async def download_and_send_audio(client, callback_query, video_url):
             performer=channel_name,
             thumb=thumbnail_path,  # Use the already downloaded thumbnail
             caption=f"🎶 {html.escape(title)} - {html.escape(channel_name)}",
-            parse_mode="html",
+            parse_mode=ParseMode.HTML,
         )
 
         # Clean up the downloaded file and thumbnail
@@ -1250,7 +1251,7 @@ async def download_and_send_video(client, callback_query, format_id, video_url):
             chat_id=callback_query.message.chat.id,
             video=final_filepath,
             caption=f"📹 {html.escape(title)}",
-            parse_mode="html",
+            parse_mode=ParseMode.HTML,
             duration=info.get("duration"),
             width=info.get("width"),
             height=info.get("height"),
@@ -1453,7 +1454,7 @@ async def handle_youtube_link(client, message):
                     photo=thumbnail_path,
                     caption=response,
                     reply_markup=keyboard,
-                    parse_mode="html",
+                    parse_mode=ParseMode.HTML,
                 )
                 logging.info("Successfully sent response with thumbnail")
             except Exception as e:
@@ -1461,7 +1462,7 @@ async def handle_youtube_link(client, message):
                 # Fallback to text-only message
                 logging.debug("Falling back to text-only message")
                 await processing_msg.edit_text(
-                    response, reply_markup=keyboard, parse_mode="html"
+                    response, reply_markup=keyboard, parse_mode=ParseMode.HTML
                 )
             finally:
                 # Clean up thumbnail file

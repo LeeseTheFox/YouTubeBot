@@ -1346,8 +1346,11 @@ def normalize_youtube_url(url: str) -> str:
         # Add https:// if missing
         url = "https://" + url
 
+    # Normalize m.youtube.com (mobile) to www.youtube.com
+    if "m.youtube.com" in url:
+        url = url.replace("m.youtube.com", "www.youtube.com")
     # Add www. if it's youtube.com without www.
-    if (
+    elif (
         "youtube.com" in url
         and "www.youtube.com" not in url
         and "music.youtube.com" not in url
@@ -1490,7 +1493,7 @@ async def handle_youtube_link(client, message):
     filters.text
     & ~filters.command("start")
     & ~filters.regex(
-        r"(https?://)?(www\.)?(youtube\.com|youtu\.be|music\.youtube\.com)/.*"
+        r"(https?://)?(www\.|m\.)?(youtube\.com|youtu\.be|music\.youtube\.com)/.*"
     )
 )
 async def handle_invalid_input(message):
@@ -1500,7 +1503,7 @@ async def handle_invalid_input(message):
 
     await message.reply_text(
         "❌ Please send a valid YouTube video link.\n"
-        "The link should start with youtube.com or youtu.be"
+        "The link should start with youtube.com, youtu.be, or m.youtube.com"
     )
 
 

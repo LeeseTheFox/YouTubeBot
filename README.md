@@ -204,6 +204,7 @@ python main.py
 ### Supported URL formats
 ```
 https://www.youtube.com/watch?v=VIDEO_ID
+https://m.youtube.com/watch?v=VIDEO_ID
 https://youtu.be/VIDEO_ID
 https://www.youtube.com/shorts/VIDEO_ID
 https://music.youtube.com/watch?v=VIDEO_ID

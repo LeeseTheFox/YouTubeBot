@@ -1,4 +1,5 @@
 import asyncio
+import html
 import logging
 import os
 import re
@@ -556,7 +557,8 @@ async def download_and_send_audio(client, callback_query, video_url):
             title=title,
             performer=channel_name,
             thumb=thumbnail_path,  # Use the already downloaded thumbnail
-            caption=f"🎶 {title} - {channel_name}",
+            caption=f"🎶 {html.escape(title)} - {html.escape(channel_name)}",
+            parse_mode="html",
         )
 
         # Clean up the downloaded file and thumbnail
@@ -1247,7 +1249,8 @@ async def download_and_send_video(client, callback_query, format_id, video_url):
         await client.send_video(
             chat_id=callback_query.message.chat.id,
             video=final_filepath,
-            caption=f"📹 {title}",
+            caption=f"📹 {html.escape(title)}",
+            parse_mode="html",
             duration=info.get("duration"),
             width=info.get("width"),
             height=info.get("height"),
@@ -1435,7 +1438,7 @@ async def handle_youtube_link(client, message):
             logging.warning("Failed to download thumbnail")
 
         # Create response message
-        response = f"📹 **{title}**\n\nSelect video quality:"
+        response = f"📹 <b>{html.escape(title)}</b>\n\nSelect video quality:"
 
         # Create and attach inline keyboard
         logging.debug("Creating quality selection keyboard")
@@ -1450,13 +1453,16 @@ async def handle_youtube_link(client, message):
                     photo=thumbnail_path,
                     caption=response,
                     reply_markup=keyboard,
+                    parse_mode="html",
                 )
                 logging.info("Successfully sent response with thumbnail")
             except Exception as e:
                 logging.error(f"Error sending photo: {str(e)}")
                 # Fallback to text-only message
                 logging.debug("Falling back to text-only message")
-                await processing_msg.edit_text(response, reply_markup=keyboard)
+                await processing_msg.edit_text(
+                    response, reply_markup=keyboard, parse_mode="html"
+                )
             finally:
                 # Clean up thumbnail file
                 try:

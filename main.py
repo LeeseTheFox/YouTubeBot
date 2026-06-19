@@ -141,7 +141,7 @@ def cleanup_session_locks():
                         if os.path.exists(lock_file):
                             try:
                                 os.remove(lock_file)
-                            except:
+                            except OSError:
                                 pass
                 except Exception as remove_error:
                     logging.error(
@@ -324,7 +324,6 @@ def should_include_quality(quality_info):
     Determine if a quality should be included based on filtering rules.
     """
     height = quality_info.get("height")
-    fps = quality_info.get("fps")
     quality_str = quality_info.get("quality", "").lower()
     vcodec = quality_info.get("vcodec", "").lower()
 
@@ -517,7 +516,7 @@ async def download_and_send_audio(client, callback_query, video_url):
                 # Add ID3 tags - first try to load existing tags or create a new one
                 try:
                     audio = ID3(temp_filepath)
-                except:
+                except Exception:
                     # If no ID3 tag exists, create a new one and save it to the file
                     audio = ID3()
                     audio.save(temp_filepath)
@@ -525,7 +524,7 @@ async def download_and_send_audio(client, callback_query, video_url):
                 # Update the tags
                 audio["TIT2"] = TIT2(encoding=3, text=title)  # Song title
                 audio["TPE1"] = TPE1(encoding=3, text=channel_name)  # Artist
-                audio["TALB"] = TALB(encoding=3, text=f"From YouTube")  # Album
+                audio["TALB"] = TALB(encoding=3, text="From YouTube")  # Album
 
                 # Try to add album art if available
                 if thumbnail_path and os.path.exists(thumbnail_path):
@@ -1377,6 +1376,7 @@ async def handle_youtube_link(client, message):
         logging.warning(f"Unauthorized access attempt from user {message.from_user.id}")
         return
 
+    processing_msg = None
     try:
         # Normalize the YouTube URL
         normalized_url = normalize_youtube_url(message.text)
@@ -1387,7 +1387,7 @@ async def handle_youtube_link(client, message):
         processing_msg = await message.reply_text("🔄 Processing video information...")
 
         # Extract video qualities with timeout
-        logging.info(f"Attempting extraction with 30s timeout")
+        logging.info("Attempting extraction with 30s timeout")
 
         try:
             # Run extraction in thread pool with timeout
@@ -1404,7 +1404,7 @@ async def handle_youtube_link(client, message):
 
         except asyncio.TimeoutError:
             error_msg = "❌ Error: Request timed out. The video might be unavailable or the server is slow. Please try again."
-            logging.error(f"Extraction timed out after 30s")
+            logging.error("Extraction timed out after 30s")
             await processing_msg.edit_text(error_msg)
             return
         except Exception as e:
@@ -1478,7 +1478,7 @@ async def handle_youtube_link(client, message):
         logging.error(f"Unexpected error in handle_youtube_link: {str(e)}")
         error_message = f"❌ Error processing video: {str(e)}"
         try:
-            if "processing_msg" in locals():
+            if processing_msg is not None:
                 await processing_msg.edit_text(error_message)
             else:
                 await message.reply_text(error_message)

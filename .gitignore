@@ -3,6 +3,9 @@
 .env.local
 .env.*.local
 
+# Local agent instructions
+AGENTS.md
+
 # Sensitive Files
 cookies.txt
 *.session

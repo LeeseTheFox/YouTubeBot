@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import html
 import logging
 import os
@@ -141,16 +142,15 @@ def cleanup_session_locks():
                     # Also remove auxiliary files again
                     for lock_file in lock_files:
                         if os.path.exists(lock_file):
-                            try:
+                            with contextlib.suppress(OSError):
                                 os.remove(lock_file)
-                            except OSError:
-                                pass
                 except Exception as remove_error:
                     logging.error(
                         f"Could not remove locked session file: {remove_error}"
                     )
                     logging.error(
-                        "You may need to manually delete the session file or restart the container"
+                        "You may need to manually delete the session file "
+                        "or restart the container"
                     )
             else:
                 logging.warning(f"Session database error: {e}")
@@ -223,8 +223,10 @@ app = Client(
     api_hash=os.getenv("API_HASH"),
     bot_token=os.getenv("BOT_TOKEN"),
     workdir=DATA_DIR,
-    sleep_threshold=60,  # Increase sleep threshold to prevent disconnects during long operations
-    max_concurrent_transmissions=1,  # Limit concurrent transmissions to reduce connection stress
+    # Prevent disconnects during long operations.
+    sleep_threshold=60,
+    # Reduce connection stress during transfers.
+    max_concurrent_transmissions=1,
 )
 
 
@@ -337,7 +339,7 @@ class Progress:
 
         current_percent = int((current / total) * 100)
 
-        # Update progress only if percentage changed by at least 5% or if download completed
+        # Update progress only on 5% increments or when download completed.
         # This helps avoid flood wait limits
         if (current_percent - self.last_percent >= 5) or current == total:
             try:
@@ -462,12 +464,10 @@ async def download_and_send_audio(client, callback_query, video_url):
             bar = "█" * filled_length + "░" * (PROGRESS_BAR_LENGTH - filled_length)
             percent = progress * 100
 
-            try:
+            with contextlib.suppress(Exception):
                 await status_message.edit_text(
                     f"⬇️ Downloading...\n{bar} {percent:.1f}%"
                 )
-            except Exception:
-                pass
 
         # Add download progress callback
         ydl_opts = {
@@ -609,7 +609,10 @@ async def download_and_send_audio(client, callback_query, video_url):
         logging.error(
             f"Connection reset during audio download: {str(e)}", exc_info=True
         )
-        error_message = "❌ Connection lost during download. The audio is still being downloaded in the background."
+        error_message = (
+            "❌ Connection lost during download. The audio is still being "
+            "downloaded in the background."
+        )
         try:
             if status_message:
                 await status_message.edit_text(error_message)
@@ -672,7 +675,11 @@ def get_video_qualities(url):
                 "socket_timeout": 30,
                 "skip_download": True,
                 "ignoreerrors": False,
-                "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "user_agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                ),
                 "extractor_retries": 3,
                 "fragment_retries": 3,
                 "file_access_retries": 3,
@@ -695,21 +702,22 @@ def get_video_qualities(url):
                             continue
                         return None, "Could not extract video information"
 
-                    logging.debug(
-                        f"Successfully extracted info for: {info.get('title', 'Unknown')}"
-                    )
+                    title = info.get("title", "Unknown")
+                    logging.debug(f"Successfully extracted info for: {title}")
                 except yt_dlp.utils.DownloadError as e:
                     error_msg = str(e)
                     if (
                         "getaddrinfo failed" in error_msg
                         or "Unable to download webpage" in error_msg
-                    ):
-                        if attempt < max_retries - 1:
-                            logging.warning(
-                                f"Network error on attempt {attempt + 1}, retrying in {retry_delay} seconds: {error_msg}"
-                            )
-                            time.sleep(retry_delay)
-                            continue
+                    ) and attempt < max_retries - 1:
+                        logging.warning(
+                            "Network error on attempt %s, retrying in %s seconds: %s",
+                            attempt + 1,
+                            retry_delay,
+                            error_msg,
+                        )
+                        time.sleep(retry_delay)
+                        continue
                     logging.error(
                         f"Error during info extraction: {error_msg}", exc_info=True
                     )
@@ -800,7 +808,7 @@ def get_video_qualities(url):
 
                         if should_include_quality(quality_info):
                             # Keep the best format for each quality
-                            # Prefer HTTPS (direct download) over HLS (m3u8) to avoid empty file errors
+                            # Prefer direct HTTPS over HLS to avoid empty files.
                             if quality not in seen_qualities:
                                 seen_qualities[quality] = quality_info
                             else:
@@ -823,8 +831,8 @@ def get_video_qualities(url):
                                 )
 
                                 # Decision logic for "Best" format for this quality:
-                                # 1. Codec: H.264 (avc1) > Others (Critical for macOS/iOS compatibility)
-                                # 2. Protocol: HTTPS > HLS (Better reliability, though HLS is now improved)
+                                # 1. H.264 (avc1) > others for macOS/iOS.
+                                # 2. HTTPS > HLS for reliability.
                                 # 3. Bitrate: Higher > Lower
 
                                 use_new = False
@@ -833,12 +841,12 @@ def get_video_qualities(url):
                                     use_new = True
                                 elif new_is_h264 == existing_is_h264:
                                     # Codecs priority is same, check protocol
-                                    if new_is_https and not existing_is_https:
-                                        use_new = True
-                                    elif new_is_https == existing_is_https:
-                                        # Protocols are same, check bitrate
-                                        if quality_info["tbr"] > existing["tbr"]:
-                                            use_new = True
+                                    use_new = (
+                                        new_is_https and not existing_is_https
+                                    ) or (
+                                        new_is_https == existing_is_https
+                                        and quality_info["tbr"] > existing["tbr"]
+                                    )
 
                                 if use_new:
                                     seen_qualities[quality] = quality_info
@@ -853,23 +861,32 @@ def get_video_qualities(url):
                 if not qualities:
                     logging.error("No suitable qualities found after filtering")
                     logging.info(f"Total formats found: {len(formats)}")
+                    video_format_count = len(
+                        [f for f in formats if f.get("vcodec") != "none"]
+                    )
                     logging.info(
-                        f"Video formats (vcodec != 'none'): {len([f for f in formats if f.get('vcodec') != 'none'])}"
+                        "Video formats (vcodec != 'none'): %s",
+                        video_format_count,
                     )
                     # Return a more helpful error message
                     return (
                         None,
-                        "No suitable video qualities found. The video might be unavailable, age-restricted, or in an unsupported format.",
+                        "No suitable video qualities found. The video might be "
+                        "unavailable, age-restricted, or in an unsupported format.",
                     )
 
+                quality_names = [q["quality"] for q in qualities]
                 logging.info(
-                    f"Successfully extracted {len(qualities)} qualities: {[q['quality'] for q in qualities]}"
+                    "Successfully extracted %s qualities: %s",
+                    len(qualities),
+                    quality_names,
                 )
                 return qualities, info.get("title", "Unknown Title")
 
             # If we get here without returning, we need to retry
             logging.warning(
-                f"Extraction attempt {attempt + 1} failed without specific error, retrying..."
+                "Extraction attempt %s failed without specific error, retrying...",
+                attempt + 1,
             )
 
         except Exception as e:
@@ -877,7 +894,10 @@ def get_video_qualities(url):
                 "getaddrinfo failed" in str(e) or "Unable to download webpage" in str(e)
             ):
                 logging.warning(
-                    f"Network error on attempt {attempt + 1}, retrying in {retry_delay} seconds: {str(e)}"
+                    "Network error on attempt %s, retrying in %s seconds: %s",
+                    attempt + 1,
+                    retry_delay,
+                    str(e),
                 )
                 time.sleep(retry_delay)
             else:
@@ -889,7 +909,8 @@ def get_video_qualities(url):
     # If we've exhausted all retries
     return (
         None,
-        "Failed to extract video info after multiple attempts. Please check your internet connection and try again.",
+        "Failed to extract video info after multiple attempts. Please check "
+        "your internet connection and try again.",
     )
 
 
@@ -913,12 +934,15 @@ def extract_video_id(url: str) -> str:
             if "v=" in url:
                 video_id = url.split("v=")[-1].split("&")[0]
                 logging.debug(
-                    f"Extracted video ID from music.youtube.com URL with v= parameter: {video_id}"
+                    "Extracted video ID from music.youtube.com URL with v= "
+                    "parameter: %s",
+                    video_id,
                 )
             elif "watch/" in url:
                 video_id = url.split("watch/")[-1].split("?")[0].split("&")[0]
                 logging.debug(
-                    f"Extracted video ID from music.youtube.com/watch/ format: {video_id}"
+                    "Extracted video ID from music.youtube.com/watch/ format: %s",
+                    video_id,
                 )
             else:
                 # Try to find videoId in other formats
@@ -926,7 +950,8 @@ def extract_video_id(url: str) -> str:
                 if match:
                     video_id = match.group(1)
                     logging.debug(
-                        f"Extracted video ID using regex from music.youtube.com: {video_id}"
+                        "Extracted video ID using regex from music.youtube.com: %s",
+                        video_id,
                     )
                 else:
                     video_id = ""
@@ -1034,10 +1059,8 @@ class DownloadProgress:
                         self.progress_callback(downloaded_bytes, total_bytes), self.loop
                     )
                     # Wait for the future to complete to ensure the message is sent
-                    try:
+                    with contextlib.suppress(Exception):
                         future.result(timeout=5)
-                    except Exception:
-                        pass
                     self.last_update_time = now
 
 
@@ -1105,17 +1128,20 @@ async def download_and_send_video(client, callback_query, format_id, video_url):
             bar = "█" * filled_length + "░" * (20 - filled_length)
             percent = progress * 100
 
-            try:
+            with contextlib.suppress(Exception):
                 await status_message.edit_text(
                     f"⬇️ Downloading...\n{bar} {percent:.1f}%"
                 )
-            except Exception:
-                pass
 
         # Step 1: Extract video metadata for pre-check and accurate file size
         # Use format selection that strictly prefers H.264 (avc1) for compatibility
         # Then prefers HTTPS over HLS, and AAC audio
-        format_selector = f"({format_id}[vcodec^=avc1]+bestaudio[acodec^=mp4a]/({format_id})[vcodec^=avc1]+bestaudio/({format_id})+bestaudio[acodec^=mp4a]/({format_id})+bestaudio/best)"
+        format_selector = (
+            f"({format_id}[vcodec^=avc1]+bestaudio[acodec^=mp4a]/"
+            f"({format_id})[vcodec^=avc1]+bestaudio/"
+            f"({format_id})+bestaudio[acodec^=mp4a]/"
+            f"({format_id})+bestaudio/best)"
+        )
 
         ydl_opts_info = {
             **yt_dlp_common_opts(),
@@ -1131,7 +1157,8 @@ async def download_and_send_video(client, callback_query, format_id, video_url):
 
         if filesize and filesize > MAX_FILE_SIZE:
             await status_message.edit_text(
-                f"❌ Error: Video file size exceeds the limit! (Size: {format_size(filesize)})"
+                "❌ Error: Video file size exceeds the limit! "
+                f"(Size: {format_size(filesize)})"
             )
             return
 
@@ -1179,16 +1206,16 @@ async def download_and_send_video(client, callback_query, format_id, video_url):
         }
 
         def cleanup_temp_files(base_path):
-            """Remove all intermediate files ffmpeg might leave behind for a given base path.
+            """Remove intermediate files ffmpeg leaves for a base path.
 
-            ffmpeg exits with code 183 ('file already exists') if any output file from a
-            previous attempt is still on disk. We delete all files sharing the same stem.
+            ffmpeg exits with code 183 ('file already exists') if an output
+            file from a previous attempt is still on disk.
             """
             import glob as _glob
 
             # Derive the stem without the .mp4 extension (e.g. downloads/abc123)
             stem = os.path.splitext(base_path)[0]
-            # Match everything that starts with this stem (covers .webm, .mkv, .m4a, .jpg, .part, etc.)
+            # Match related intermediate files like .webm, .m4a, .jpg, .part.
             for leftover in _glob.glob(f"{_glob.escape(stem)}*"):
                 try:
                     os.remove(leftover)
@@ -1204,7 +1231,9 @@ async def download_and_send_video(client, callback_query, format_id, video_url):
         for download_attempt in range(max_download_attempts):
             try:
                 await status_message.edit_text(
-                    f"⬇️ {'Retrying' if download_attempt > 0 else 'Starting'} download..."
+                    "⬇️ "
+                    f"{'Retrying' if download_attempt > 0 else 'Starting'} "
+                    "download..."
                 )
                 await download_video_async(loop, ydl_opts, video_url)
                 break  # Download succeeded
@@ -1213,12 +1242,11 @@ async def download_and_send_video(client, callback_query, format_id, video_url):
                     f"Download attempt {download_attempt + 1}/{max_download_attempts} "
                     f"failed: {str(dl_err)}"
                 )
-                # Clean up ALL intermediate files ffmpeg may have created before retry
-                # (ffmpeg exits with code 183 "file already exists" if these are left behind)
+                # Clean up intermediate files ffmpeg created before retry.
                 cleanup_temp_files(temp_filepath)
                 if download_attempt >= max_download_attempts - 1:
                     raise  # Re-raise on final attempt
-                # Try without thumbnail embedding on retry (it can cause ffmpeg failures)
+                # Retry without thumbnail embedding; it can cause ffmpeg failures.
                 ydl_opts_retry = ydl_opts.copy()
                 ydl_opts_retry["writethumbnail"] = False
                 ydl_opts_retry["postprocessors"] = [
@@ -1264,7 +1292,7 @@ async def download_and_send_video(client, callback_query, format_id, video_url):
 
         # Step 7: Upload video to Telegram
 
-        # Locate the thumbnail file (yt-dlp saves it with the same basename as temp file but .jpg extension)
+        # yt-dlp saves thumbnails with the same basename as temp file.
         thumb_path = None
         if temp_filepath:
             base_name = os.path.splitext(temp_filepath)[0]
@@ -1290,16 +1318,17 @@ async def download_and_send_video(client, callback_query, format_id, video_url):
             os.remove(final_filepath)
 
         if thumb_path and os.path.exists(thumb_path):
-            try:
+            with contextlib.suppress(Exception):
                 os.remove(thumb_path)
-            except Exception:
-                pass
 
         await status_message.delete()
 
     except ConnectionResetError as e:
         logging.error(f"Connection reset during download: {str(e)}", exc_info=True)
-        error_message = "❌ Connection lost during download. The video is still being downloaded in the background."
+        error_message = (
+            "❌ Connection lost during download. The video is still being "
+            "downloaded in the background."
+        )
         try:
             if status_message:
                 await status_message.edit_text(error_message)
@@ -1435,7 +1464,10 @@ async def handle_youtube_link(client, message):
             )
 
         except asyncio.TimeoutError:
-            error_msg = "❌ Error: Request timed out. The video might be unavailable or the server is slow. Please try again."
+            error_msg = (
+                "❌ Error: Request timed out. The video might be unavailable "
+                "or the server is slow. Please try again."
+            )
             logging.error("Extraction timed out after 30s")
             await processing_msg.edit_text(error_msg)
             return
@@ -1557,8 +1589,9 @@ async def handle_quality_selection(client, callback_query):
                 # Handle "unknown" video ID case
                 if video_id == "unknown":
                     await callback_query.message.reply_text(
-                        "⚠️ Cannot download video: Unable to extract video ID from the original URL. "
-                        "Please try sharing the video using a standard YouTube URL format."
+                        "⚠️ Cannot download video: Unable to extract video ID "
+                        "from the original URL. Please try sharing the video "
+                        "using a standard YouTube URL format."
                     )
                     return
 
@@ -1572,7 +1605,8 @@ async def handle_quality_selection(client, callback_query):
             else:
                 # We only have the format ID, tell user to resend the link
                 await callback_query.message.reply_text(
-                    "⚠️ Video URL information missing. Please send the YouTube link again."
+                    "⚠️ Video URL information missing. Please send the "
+                    "YouTube link again."
                 )
         elif data_parts[0] == "mp3":
             if len(data_parts) > 1:
@@ -1582,7 +1616,8 @@ async def handle_quality_selection(client, callback_query):
                 if video_id == "audio" or video_id == "unknown":
                     await callback_query.message.reply_text(
                         "⚠️ Cannot download audio: missing video URL information. "
-                        "Please try sharing the video using a standard YouTube URL format."
+                        "Please try sharing the video using a standard "
+                        "YouTube URL format."
                     )
                     return
 
@@ -1594,7 +1629,8 @@ async def handle_quality_selection(client, callback_query):
             else:
                 # We don't have the video ID, tell user to resend the link
                 await callback_query.message.reply_text(
-                    "⚠️ Video URL information missing. Please send the YouTube link again."
+                    "⚠️ Video URL information missing. Please send the "
+                    "YouTube link again."
                 )
 
     except Exception as e:
@@ -1646,9 +1682,8 @@ if __name__ == "__main__":
             print("1. Check for other running instances: ps aux | grep main.py")
             print("2. Stop all bot instances and wait 5 seconds before restarting")
             print("3. If using Docker, try: docker-compose down && docker-compose up")
-            print(
-                f"4. Manually delete the session file: rm {os.path.join(DATA_DIR, 'youtube_quality_bot.session')}*"
-            )
+            session_file = os.path.join(DATA_DIR, "youtube_quality_bot.session")
+            print(f"4. Manually delete the session file: rm {session_file}*")
             print("5. Check if the data directory has proper permissions")
             sys.exit(1)
         else:

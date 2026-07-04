@@ -13,7 +13,6 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import List, Set
 
 
 class RuntimeState:
@@ -28,7 +27,7 @@ class RuntimeState:
         """
         self.data_dir = Path(data_dir)
         self.whitelist_path = self.data_dir / "whitelist.json"
-        self._whitelist: Set[int] = set()
+        self._whitelist: set[int] = set()
         self._load_or_initialize()
 
     def _load_or_initialize(self):
@@ -36,14 +35,14 @@ class RuntimeState:
         if self.whitelist_path.exists():
             # Load existing runtime state from disk
             try:
-                with open(self.whitelist_path, "r") as f:
+                with open(self.whitelist_path) as f:
                     data = json.load(f)
                     self._whitelist = set(data.get("user_ids", []))
                 logging.info(
                     f"✅ Loaded whitelist from {self.whitelist_path}: "
                     f"{len(self._whitelist)} users"
                 )
-            except (json.JSONDecodeError, IOError) as e:
+            except (OSError, json.JSONDecodeError) as e:
                 logging.error(f"Failed to load whitelist from disk: {e}")
                 logging.warning("Initializing empty whitelist")
                 self._whitelist = set()
@@ -83,13 +82,13 @@ class RuntimeState:
             with open(self.whitelist_path, "w") as f:
                 json.dump(
                     {
-                        "user_ids": sorted(list(self._whitelist)),
+                        "user_ids": sorted(self._whitelist),
                         "version": 1,
                     },
                     f,
                     indent=2,
                 )
-        except IOError as e:
+        except OSError as e:
             logging.error(f"Failed to save whitelist to disk: {e}")
 
     def is_user_whitelisted(self, user_id: int) -> bool:
@@ -140,14 +139,14 @@ class RuntimeState:
         logging.info(f"➖ Removed user {user_id} from whitelist")
         return True
 
-    def get_whitelist(self) -> List[int]:
+    def get_whitelist(self) -> list[int]:
         """
         Get a copy of the current whitelist.
 
         Returns:
             List of whitelisted user IDs
         """
-        return sorted(list(self._whitelist))
+        return sorted(self._whitelist)
 
     def get_whitelist_size(self) -> int:
         """

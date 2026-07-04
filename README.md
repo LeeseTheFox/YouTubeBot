@@ -32,9 +32,10 @@ A powerful Telegram bot that downloads YouTube videos and audio with multiple qu
 ## 📋 Requirements
 
 ### System dependencies
-- **Python 3.7+**
+- **Python 3.11**
 - **FFmpeg**
 - **Deno** (required for YouTube JavaScript challenge solving)
+- **BgUtils POT provider server** (started automatically by Docker/`start.sh`)
 
 ### Python dependencies
 ```
@@ -179,9 +180,31 @@ YouTube analyzes session behavior patterns to detect automation. When you use co
 ## 🎮 Usage
 
 ### Starting the bot
+
+**Recommended production path: use Docker or `start.sh`.**
+
+The bot can technically be started from `main.py`, but reliable YouTube downloads now also depend on the BgUtils POT provider server. `start.sh` starts that provider server first, then starts the bot.
+
+If you are running the Docker image, this is already handled for you:
+
 ```bash
-python main.py
+docker build -t youtube-bot .
+docker run --env-file .env -v $(pwd)/data:/app/data youtube-bot
 ```
+
+If you are running on a host where `/opt/bgutil-ytdlp-pot-provider/server` has been installed:
+
+```bash
+./start.sh
+```
+
+For local development only, you can run the bot entrypoint directly:
+
+```bash
+./venv/bin/python main.py
+```
+
+Directly running `main.py` starts only the Telegram bot process. You must install dependencies in the same Python environment, use a compatible Python version, install Deno, and start/configure the BgUtils provider separately if you want YouTube downloads to be reliable.
 
 ### Using the bot
 

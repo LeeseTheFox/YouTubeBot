@@ -41,7 +41,8 @@ A powerful Telegram bot that downloads YouTube videos and audio with multiple qu
 pyrogram          # User API client for large file uploads (up to 2GB)
 tgcrypto          # Cryptography speedup for Pyrogram
 yt-dlp            # YouTube video downloader
-yt-dlp-ejs        # JavaScript challenge solver for yt-dlp
+yt-dlp[default]   # yt-dlp plus recommended EJS/runtime dependencies
+bgutil-ytdlp-pot-provider # PO-token provider plugin for YouTube media streams
 mutagen           # Audio metadata handling
 requests          # HTTP requests for thumbnails
 python-dotenv     # Environment variable management
@@ -57,8 +58,8 @@ python-dotenv     # Environment variable management
 
 ### 1. Install dependencies
 ```bash
-# Install the latest nightly version of yt-dlp (recommended)
-pip install --upgrade --pre yt-dlp
+# Install the latest nightly version of yt-dlp with recommended dependencies
+pip install --upgrade --pre "yt-dlp[default]"
 
 # Install other dependencies
 pip install -r requirements.txt
@@ -368,12 +369,14 @@ YouTubeBot/
      - **After first run**: Edit `data/whitelist.json` directly and add your user ID to the `user_ids` array
    - Restart the bot after making changes to `data/whitelist.json`
 
-4. **Videos fail to download / "Sign in to confirm you're not a bot"**
-   - **Most common cause**: Missing Deno or yt-dlp-ejs package
+4. **Videos fail to download / "Sign in to confirm you're not a bot" / HTTP 403**
+   - **Most common cause**: Missing Deno, EJS dependencies, or PO-token provider setup
    - **Solution**: 
      - Install Deno: `curl -fsSL https://deno.land/install.sh | sh`
-     - Install yt-dlp-ejs: `pip install yt-dlp-ejs`
+     - Install yt-dlp recommended dependencies: `pip install --upgrade "yt-dlp[default]"`
+     - Install the PO-token provider plugin: `pip install --upgrade bgutil-ytdlp-pot-provider`
      - Ensure Deno is in your PATH
+     - In Docker, rebuild the image so `/opt/bgutil-ytdlp-pot-provider/server` is installed and started
    - **Alternative cause**: Session behavior conflict from using shared cookies
    - **Solution**: Re-export cookies from an incognito tab using [cookies.txt](https://github.com/hrdl-github/cookies-txt)
    - Ensure `cookies.txt` file exists in the project directory
@@ -383,10 +386,10 @@ YouTubeBot/
    - Re-export cookies from an incognito session
 
 6. **Bot works initially but stops after a few hours/days**
-   - **Cause**: Session behavior analysis detected conflicting usage patterns or Deno/yt-dlp-ejs missing
+   - **Cause**: Session behavior analysis detected conflicting usage patterns or Deno/PO-token provider setup missing
    - **Solution**: 
      - Verify Deno is installed and in PATH: `deno --version`
-     - Verify yt-dlp-ejs is installed: `pip list | grep yt-dlp-ejs`
+     - Verify the provider plugin is installed: `pip list | grep bgutil-ytdlp-pot-provider`
      - Use dedicated incognito cookies and avoid browsing YouTube with the same session
 
 ## 🔒 Security Notes

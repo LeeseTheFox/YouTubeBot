@@ -176,6 +176,35 @@ if not os.path.exists(COOKIES_PATH):
 else:
     print(f"Cookie file found at {COOKIES_PATH}")
 
+YOUTUBE_PLAYER_CLIENTS = [
+    client.strip()
+    for client in os.getenv("YOUTUBE_PLAYER_CLIENT", "mweb").split(",")
+    if client.strip()
+] or ["mweb"]
+BGUTIL_SERVER_HOME = os.getenv(
+    "BGUTIL_SERVER_HOME", "/opt/bgutil-ytdlp-pot-provider/server"
+)
+
+
+def yt_dlp_common_opts():
+    """Options shared by metadata extraction and media downloads."""
+    extractor_args = {
+        "youtube": {
+            "player_client": YOUTUBE_PLAYER_CLIENTS,
+        }
+    }
+
+    if BGUTIL_SERVER_HOME:
+        extractor_args["youtubepot-bgutilscript"] = {
+            "server_home": [BGUTIL_SERVER_HOME],
+        }
+
+    return {
+        "cookiefile": COOKIES_PATH if os.path.exists(COOKIES_PATH) else None,
+        "remote_components": ["ejs:github"],
+        "extractor_args": extractor_args,
+    }
+
 
 def is_user_allowed(user_id: int) -> bool:
     """Check if user is allowed to use the bot."""
@@ -442,16 +471,15 @@ async def download_and_send_audio(client, callback_query, video_url):
 
         # Add download progress callback
         ydl_opts = {
+            **yt_dlp_common_opts(),
             "format": "bestaudio/best",
             "quiet": True,
             "no_warnings": True,
             "progress_hooks": [DownloadProgress(loop, update_status)],
-            "cookiefile": COOKIES_PATH,
             "outtmpl": temp_filepath,
             "filesize_limit": MAX_FILE_SIZE,
             "ffmpeg_location": FFMPEG_PATH,
             "prefer_ffmpeg": True,
-            "remote_components": "ejs:github",
             "postprocessors": [
                 {
                     "key": "FFmpegExtractAudio",
@@ -636,13 +664,12 @@ def get_video_qualities(url):
     for attempt in range(max_retries):
         try:
             ydl_opts = {
+                **yt_dlp_common_opts(),
                 "quiet": True,
                 "no_warnings": True,
                 "extract_flat": False,
-                "cookiefile": COOKIES_PATH if os.path.exists(COOKIES_PATH) else None,
                 "nocheckcertificate": True,
                 "socket_timeout": 30,
-                "remote_components": "ejs:github",
                 "skip_download": True,
                 "ignoreerrors": False,
                 "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -1091,11 +1118,10 @@ async def download_and_send_video(client, callback_query, format_id, video_url):
         format_selector = f"({format_id}[vcodec^=avc1]+bestaudio[acodec^=mp4a]/({format_id})[vcodec^=avc1]+bestaudio/({format_id})+bestaudio[acodec^=mp4a]/({format_id})+bestaudio/best)"
 
         ydl_opts_info = {
+            **yt_dlp_common_opts(),
             "format": format_selector,
             "quiet": True,
             "no_warnings": True,
-            "cookiefile": COOKIES_PATH,
-            "remote_components": "ejs:github",
         }
 
         info = await extract_info_async(loop, ydl_opts_info, video_url)
@@ -1121,6 +1147,7 @@ async def download_and_send_video(client, callback_query, format_id, video_url):
         # Step 4: Configure yt-dlp for downloading
         # Enhanced settings to handle HLS streams more reliably and ensure compatibility
         ydl_opts = {
+            **yt_dlp_common_opts(),
             "format": format_selector,  # Prefer direct HTTPS over HLS
             "outtmpl": temp_filepath,
             "overwrites": True,  # Overwrite leftover files from failed attempts
@@ -1128,7 +1155,6 @@ async def download_and_send_video(client, callback_query, format_id, video_url):
             "no_warnings": True,
             "no_progress": True,
             "progress_hooks": [DownloadProgress(loop, update_status)],
-            "cookiefile": COOKIES_PATH,
             "ffmpeg_location": FFMPEG_PATH,
             "prefer_ffmpeg": True,
             "merge_output_format": "mp4",  # Force output as MP4
@@ -1142,7 +1168,6 @@ async def download_and_send_video(client, callback_query, format_id, video_url):
                 },  # Convert thumbnail to JPG for Apple compatibility
                 {"key": "EmbedThumbnail"},  # Embed thumbnail as cover art
             ],
-            "remote_components": "ejs:github",
             # HLS/fragment download reliability improvements
             "hls_prefer_native": False,  # Use ffmpeg for HLS (more reliable)
             "fragment_retries": 10,  # Retry failed fragments more times

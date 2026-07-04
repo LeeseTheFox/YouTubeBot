@@ -1,7 +1,7 @@
 pyrogram
 tgcrypto
-yt-dlp>=2025.1.1
-yt-dlp-ejs
+yt-dlp[default]>=2025.1.1
+bgutil-ytdlp-pot-provider
 mutagen
 requests
 python-dotenv
